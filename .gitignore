@@ -1,0 +1,21 @@
+# Датасеты и результаты обучения не хранятся в Git
+data/
+downloads (not for github)/
+artifacts/checkpoints/
+artifacts/tensorboard/
+artifacts/*.pt
+artifacts/*.pth
+artifacts/*.ckpt
+artifacts/runs/*/checkpoint*.pth
+artifacts/runs/*/events.out.tfevents.*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Kaggle runtime outputs
+kaggle-working/
