@@ -14,3 +14,4 @@ weight_decay: 0.0001
 batch_size: 8
 max_epochs: 50
 early_stopping_patience: 10
+augmentation: horizontal_vertical_flip
