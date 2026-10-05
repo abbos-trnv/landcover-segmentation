@@ -1,6 +1,7 @@
 """Загрузка тайлов LandCover.ai напрямую из исходных GeoTIFF-сцен."""
 
 from pathlib import Path
+from collections import OrderedDict
 
 import numpy as np
 import rasterio
@@ -26,15 +27,48 @@ class LandCoverTileDataset(Dataset):
         mask_dir: str | Path,
         tile_size: int = 512,
         transform=None,
+        max_open_scenes: int = 41,
     ):
         self.tile_index = tile_index.reset_index(drop=True)
         self.image_dir = Path(image_dir)
         self.mask_dir = Path(mask_dir)
         self.tile_size = tile_size
         self.transform = transform
+        # Внутри worker-процесса кэшируем открытые GeoTIFF. Без кэша для
+        # каждого из тысяч тайлов заново открывались image и mask файлы.
+        self.max_open_scenes = max_open_scenes
+        self._sources = OrderedDict()
 
     def __len__(self):
         return len(self.tile_index)
+
+    def _scene_sources(self, scene):
+        if scene in self._sources:
+            self._sources.move_to_end(scene)
+            return self._sources[scene]
+
+        pair = (
+            rasterio.open(self.image_dir / f"{scene}.tif"),
+            rasterio.open(self.mask_dir / f"{scene}.tif"),
+        )
+        self._sources[scene] = pair
+        while len(self._sources) > self.max_open_scenes:
+            _, old_pair = self._sources.popitem(last=False)
+            old_pair[0].close()
+            old_pair[1].close()
+        return pair
+
+    def __getstate__(self):
+        """Не переносить открытые файловые дескрипторы в DataLoader workers."""
+        state = self.__dict__.copy()
+        state["_sources"] = OrderedDict()
+        return state
+
+    def close(self):
+        for image_source, mask_source in self._sources.values():
+            image_source.close()
+            mask_source.close()
+        self._sources.clear()
 
     def __getitem__(self, index: int):
         row = self.tile_index.iloc[index]
@@ -42,20 +76,18 @@ class LandCoverTileDataset(Dataset):
         x, y = int(row["x"]), int(row["y"])
         window = Window(x, y, self.tile_size, self.tile_size)
 
-        with rasterio.open(self.image_dir / f"{scene}.tif") as src:
-            image = src.read(
-                window=window,
-                boundless=True,
-                fill_value=0,
-            )
-
-        with rasterio.open(self.mask_dir / f"{scene}.tif") as src:
-            mask = src.read(
-                1,
-                window=window,
-                boundless=True,
-                fill_value=IGNORE_INDEX,
-            )
+        image_source, mask_source = self._scene_sources(scene)
+        image = image_source.read(
+            window=window,
+            boundless=True,
+            fill_value=0,
+        )
+        mask = mask_source.read(
+            1,
+            window=window,
+            boundless=True,
+            fill_value=IGNORE_INDEX,
+        )
 
         image = torch.from_numpy(image.astype(np.float32) / 255.0)
         mask = torch.from_numpy(mask.astype(np.int64))
