@@ -53,7 +53,17 @@ def export_run_artifacts(model, test_dataset, device, run_dir, example_count: in
     plt.close(figure)
 
     cmap = ListedColormap(CLASS_COLORS)
-    sample_indices = np.linspace(0, len(test_dataset) - 1, example_count, dtype=int)
+    cmap.set_bad(color="white")
+    # Для иллюстраций берём непограничные тайлы: у них нет искусственного
+    # padding, поэтому зритель не примет предсказания вне сцены за ошибку.
+    candidate_indices = [
+        index for index, is_edge in enumerate(test_dataset.tile_index["is_edge_tile"])
+        if not is_edge
+    ]
+    sample_indices = np.linspace(
+        0, len(candidate_indices) - 1, min(example_count, len(candidate_indices)), dtype=int
+    )
+    sample_indices = [candidate_indices[index] for index in sample_indices]
     model.eval()
     for number, index in enumerate(sample_indices, start=1):
         sample = test_dataset[index]
@@ -64,9 +74,11 @@ def export_run_artifacts(model, test_dataset, device, run_dir, example_count: in
         figure, axes = plt.subplots(1, 3, figsize=(15, 5))
         axes[0].imshow(sample["image"].permute(1, 2, 0).numpy())
         axes[0].set_title(f"Image: {sample['scene']}")
-        axes[1].imshow(np.ma.masked_equal(sample["mask"].numpy(), 255), cmap=cmap, vmin=0, vmax=4)
+        target = sample["mask"].numpy()
+        padding = target == 255
+        axes[1].imshow(np.ma.masked_where(padding, target), cmap=cmap, vmin=0, vmax=4)
         axes[1].set_title("Ground truth")
-        axes[2].imshow(prediction, cmap=cmap, vmin=0, vmax=4)
+        axes[2].imshow(np.ma.masked_where(padding, prediction), cmap=cmap, vmin=0, vmax=4)
         axes[2].set_title("Prediction")
         for axis in axes:
             axis.axis("off")

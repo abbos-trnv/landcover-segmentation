@@ -14,9 +14,13 @@ def save_prediction_figure(image, target, prediction, output_path, ignore_index=
     image = np.asarray(image)
     if image.shape[0] == 3:
         image = np.moveaxis(image, 0, -1)
-    target = np.ma.masked_equal(np.asarray(target), ignore_index)
+    target_array = np.asarray(target)
+    padding = target_array == ignore_index
+    target = np.ma.masked_where(padding, target_array)
+    prediction = np.ma.masked_where(padding, np.asarray(prediction))
 
     cmap = ListedColormap(CLASS_COLORS)
+    cmap.set_bad(color="white")
     figure, axes = plt.subplots(1, 3, figsize=(15, 5))
     axes[0].imshow(image)
     axes[0].set_title("Аэрофотоснимок")
